@@ -52,6 +52,12 @@ def classify(infos):
         if info.is_dir():
             continue
         base = safe_base_name(info.filename)
+        # Archives made on Apple devices can carry AppleDouble metadata ("__MACOSX/" folders and
+        # "._name" files). It is not game data and must never be mistaken for an NSP or a keys file.
+        parts = info.filename.replace("\\", "/").split("/")
+        if "__MACOSX" in parts or base.startswith("._"):
+            ignored += 1
+            continue
         low = base.lower()
         if low == "prod.keys":
             keys.append(info)
@@ -122,7 +128,12 @@ def main(argv=None):
             for base, info in nsps:
                 print(f"extracting {base} ({info.file_size / 1e9:.2f} GB)")
                 copy_entry(zf, info, os.path.join(nsp_dir, base))
-    except (zipfile.BadZipFile, InputError) as e:
+    except zipfile.BadZipFile as e:
+        print(f"error: {e}", file=sys.stderr)
+        print("hint: the zip is damaged or incomplete. Not every tool archives files over 4 GB correctly;"
+              " re-create it with scripts/pack_inputs.py.", file=sys.stderr)
+        return 1
+    except InputError as e:
         print(f"error: {e}", file=sys.stderr)
         return 1
 

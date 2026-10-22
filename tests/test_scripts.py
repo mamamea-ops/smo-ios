@@ -58,6 +58,26 @@ class PrepareInputs(unittest.TestCase):
         self.assertIn("1 other entry ignored", out)
         self.assertNotIn(FAKE_KEY_HEX, out + err)  # key values are never printed
 
+    def test_apple_metadata_entries_are_ignored(self):
+        make_zip(self.zip, [("prod.keys", FAKE_KEYS), (f"nsp/{BASE}", b"base"),
+                            ("__MACOSX/._prod.keys", b"meta"), ("__MACOSX/nsp/._" + BASE, b"meta"),
+                            ("nsp/._" + BASE, b"meta")])
+        rc, out, err = self.prepare()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual([p.name for p in (self.dest / "nsp").iterdir()], [BASE])
+        self.assertIn("3 other entries ignored", out)
+
+    def test_zip_made_without_folder(self):
+        # e.g. the Files app archiving the selected files directly, no nsp/ folder
+        make_zip(self.zip, [("prod.keys", FAKE_KEYS), (BASE, b"base"), (UPD, b"upd")])
+        rc, _, err = self.prepare()
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(sorted(p.name for p in (self.dest / "nsp").iterdir()), sorted([BASE, UPD]))
+
+    def test_zip_inside_one_top_level_folder(self):
+        make_zip(self.zip, [("SMO/prod.keys", FAKE_KEYS), (f"SMO/{BASE}", b"base")])
+        self.assertEqual(self.prepare()[0], 0)
+
     def test_keys_in_subfolder_and_odd_case(self):
         make_zip(self.zip, [("keys/PROD.KEYS", FAKE_KEYS), (BASE, b"b")])
         self.assertEqual(self.prepare()[0], 0)
@@ -118,7 +138,9 @@ class PrepareInputs(unittest.TestCase):
         idx = raw.index(b"A" * 64)
         raw[idx + 10] ^= 0xFF  # flip a data byte; CRC must catch it
         self.zip.write_bytes(raw)
-        self.assertEqual(self.prepare()[0], 1)
+        rc, _, err = self.prepare()
+        self.assertEqual(rc, 1)
+        self.assertIn("pack_inputs.py", err)
 
     def test_not_a_zip(self):
         self.zip.write_bytes(b"nope")
