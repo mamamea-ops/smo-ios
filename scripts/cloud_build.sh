@@ -132,6 +132,7 @@ args=("$IN_DIR/nsp" -k "$IN_DIR/prod.keys")
 [[ -n "${APP_NAME:-}" ]] && args+=(--app-name "$APP_NAME")
 
 set +e
+( cd "$NX_DIR" && python3 scripts/dmsh_chain.py --update-lock )
 ( cd "$NX_DIR" && python scripts/build_ipa_from_nsp.py "${args[@]}" ) 2>&1 | tee "$OUT_DIR/diagnostics/nxnative-build.log"
 rc=${PIPESTATUS[0]}
 set -e
