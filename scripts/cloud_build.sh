@@ -136,7 +136,6 @@ set +e
 ( cd "$NX_DIR" && python scripts/build_ipa_from_nsp.py "${args[@]}" ) 2>&1 | tee "$OUT_DIR/diagnostics/nxnative-build.log"
 rc=${PIPESTATUS[0]}
 set -e
-
 # 6. Collect outputs ----------------------------------------------------------
 step "Collecting outputs"
 # Only small text files are kept as diagnostics. Rewritten code modules, extracted
