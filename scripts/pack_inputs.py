@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Pack your own NSP files and prod.keys into one zip for the cloud build.
+"""Pack your own game files (NSP, or XCI for the base game) and prod.keys into one zip for the cloud build.
 
     python3 scripts/pack_inputs.py --nsp-dir ~/Games/SMO --keys ~/keys/prod.keys -o smo-inputs.zip
 
 Zip layout (what scripts/prepare_inputs.py expects):
 
     prod.keys
-    nsp/<your files>.nsp
+    nsp/<your .nsp / .xci files>
 
 The zip contains your private game data and keys. Host it somewhere only you
 can reach (see README) and never commit it. Key contents are never printed.
@@ -20,6 +20,8 @@ from pathlib import Path
 
 SMO_BASE = "0100000000010000"
 SMO_UPDATE = "0100000000010800"  # updates use the base title ID + 0x800
+SMO_UPDATE_VERSION = 393216       # update 1.4.1, the version nxnative's README lists
+VERSION_RE = re.compile(r"\[v(\d+)\]")
 TITLE_RE = re.compile(r"\[([0-9A-Fa-f]{16})\]")
 KEY_LINE_RE = re.compile(r"^\s*([A-Za-z0-9_]+)\s*=\s*([0-9A-Fa-f]+)\s*$")
 
@@ -51,7 +53,7 @@ def sha256_file(path):
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--nsp-dir", required=True, type=Path, help="folder with the base NSP, the update NSP (and DLC)")
+    ap.add_argument("--nsp-dir", required=True, type=Path, help="folder with the base game (NSP or XCI), the update NSP (and DLC)")
     ap.add_argument("--keys", required=True, type=Path, help="path to your prod.keys")
     ap.add_argument("-o", "--output", default=Path("smo-inputs.zip"), type=Path)
     ap.add_argument("--title-id", default=SMO_BASE, help="base game title ID to require (default: Super Mario Odyssey)")
@@ -64,17 +66,19 @@ def main(argv=None):
         print(f"error: {args.keys} not found", file=sys.stderr)
         return 1
 
-    nsps = sorted(p for p in args.nsp_dir.iterdir() if p.is_file() and p.suffix.lower() == ".nsp")
-    xcis = [p for p in args.nsp_dir.iterdir() if p.is_file() and p.suffix.lower() in (".xci", ".nsz", ".xcz")]
+    nsps = sorted(p for p in args.nsp_dir.iterdir() if p.is_file() and p.suffix.lower() in (".nsp", ".xci"))
+    compressed = [p for p in args.nsp_dir.iterdir() if p.is_file() and p.suffix.lower() in (".nsz", ".xcz")]
     if not nsps:
-        if xcis:
-            print("error: found XCI/NSZ/XCZ files but no .nsp. nxnative reads plain NSP files only;"
-                  " convert them to NSP first.", file=sys.stderr)
+        if compressed:
+            print("error: found only NSZ/XCZ (compressed) files. nxnative reads NSP files, and an XCI for the"
+                  " base game; decompress them first.", file=sys.stderr)
         else:
-            print(f"error: no .nsp files in {args.nsp_dir}", file=sys.stderr)
+            print(f"error: no .nsp or .xci files in {args.nsp_dir}", file=sys.stderr)
         return 1
-    if xcis:
-        print(f"note: ignoring {len(xcis)} XCI/NSZ/XCZ file(s); only .nsp is packed")
+    if compressed:
+        print(f"note: ignoring {len(compressed)} NSZ/XCZ file(s); they are compressed and are not packed")
+    if any(p.suffix.lower() == ".xci" for p in nsps):
+        print("note: nxnative's README accepts an XCI for the base game only; the update must be an NSP")
 
     named = [p for p in nsps if title_ids(p.name)]
     if named:
@@ -82,8 +86,14 @@ def main(argv=None):
         if not any(wanted in title_ids(p.name) for p in named):
             print(f"error: no NSP name carries the title ID [{wanted}]. Wrong game?", file=sys.stderr)
             return 1
-        if wanted == SMO_BASE and not any(SMO_UPDATE in title_ids(p.name) for p in named):
-            print(f"warning: no update NSP [{SMO_UPDATE}] found. The base game alone may not match nxnative's expectations.")
+        if wanted == SMO_BASE:
+            updates = [p for p in named if SMO_UPDATE in title_ids(p.name)]
+            if not updates:
+                print(f"warning: no update NSP [{SMO_UPDATE}] found. nxnative's README asks for base game + update 1.4.1.")
+            for p in updates:
+                m = VERSION_RE.search(p.name)
+                if m and int(m.group(1)) != SMO_UPDATE_VERSION:
+                    print(f"warning: {p.name} is version v{m.group(1)}; nxnative's README lists update 1.4.1 (v{SMO_UPDATE_VERSION}).")
     else:
         print("warning: no NSP file name contains a [16-hex title ID]; nxnative will fall back to the ticket inside the NSP.")
 

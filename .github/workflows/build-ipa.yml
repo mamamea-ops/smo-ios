@@ -27,6 +27,10 @@ on:
         description: "Home-screen app name (optional)"
         type: string
         default: ""
+      release_parts:
+        description: "Also attach the IPA, split into parts under 2 GiB, to a draft release (an IPA of several GB often exceeds the artifact quota)"
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -39,6 +43,8 @@ jobs:
   build:
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 360
+    permissions:
+      contents: write   # only used to create the draft release holding the IPA parts
     steps:
       # The IPA embeds your game's files. Artifacts of public repositories can be
       # downloaded by anyone, so refuse to run anywhere but a private repository.
@@ -84,8 +90,15 @@ jobs:
           retention-days: 3
           if-no-files-found: warn
 
+      - name: Publish IPA parts to a draft release
+        if: always() && inputs.release_parts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/publish_release_parts.sh "${{ runner.temp }}/smo-out"
+
       - name: Upload IPA
         if: always()
+        continue-on-error: true   # a quota failure must not hide the other outputs
         uses: actions/upload-artifact@v4
         with:
           name: ipa

@@ -5,11 +5,11 @@
 
 Result:
     DEST_DIR/prod.keys      (mode 600)
-    DEST_DIR/nsp/*.nsp
+    DEST_DIR/nsp/*.nsp (and *.xci)
 
 Safety:
   * Entry names are never used as paths. Only exactly one 'prod.keys' and any
-    '*.nsp' are accepted, flattened to their base names (no zip-slip, no
+    '*.nsp' / '*.xci' are accepted, flattened to their base names (no zip-slip, no
     symlinks, nothing else is written).
   * Duplicate NSP base names are rejected instead of overwritten.
   * Key contents are never printed, only the number of key lines.
@@ -55,9 +55,9 @@ def classify(infos):
         low = base.lower()
         if low == "prod.keys":
             keys.append(info)
-        elif low.endswith(".nsp"):
+        elif low.endswith((".nsp", ".xci")):
             if base in seen:
-                raise InputError(f"two NSPs share the file name {base!r}; rename one")
+                raise InputError(f"two game files share the file name {base!r}; rename one")
             seen[base] = info
             nsps.append((base, info))
         else:
@@ -65,7 +65,7 @@ def classify(infos):
     if len(keys) != 1:
         raise InputError(f"expected exactly one prod.keys in the zip, found {len(keys)}")
     if not nsps:
-        raise InputError("no .nsp files in the zip")
+        raise InputError("no .nsp or .xci files in the zip")
     return keys[0], nsps, ignored
 
 

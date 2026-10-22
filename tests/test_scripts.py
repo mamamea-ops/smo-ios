@@ -18,7 +18,7 @@ import prepare_inputs  # noqa: E402
 FAKE_KEY_HEX = "deadbeefdeadbeefdeadbeefdeadbeef"
 FAKE_KEYS = f"master_key_00 = {FAKE_KEY_HEX}\nheader_key = {FAKE_KEY_HEX}{FAKE_KEY_HEX}\n"
 BASE = "Game [0100000000010000][v0].nsp"
-UPD = "Game [0100000000010800][v1].nsp"
+UPD = "Game [0100000000010800][v393216].nsp"
 
 
 def make_zip(path, entries):
@@ -157,11 +157,40 @@ class PackInputs(unittest.TestCase):
         self.assertEqual(rc, 0)
         self.assertIn("no update NSP", out)
 
-    def test_xci_only_gives_hint(self):
-        (self.nsp / "Game.xci").write_bytes(b"x")
+    def test_xci_base_game_is_accepted(self):
+        (self.nsp / "Game [0100000000010000][v0].xci").write_bytes(b"xci")
+        (self.nsp / UPD).write_bytes(b"upd")
+        rc, out, err = self.pack()
+        self.assertEqual(rc, 0, err)
+        self.assertIn("XCI for the base game only", out)
+        with zipfile.ZipFile(self.out) as zf:
+            self.assertIn("nsp/Game [0100000000010000][v0].xci", zf.namelist())
+        rc, _, err = run(prepare_inputs, [str(self.out), str(self.dir / "dest")])
+        self.assertEqual(rc, 0, err)
+        self.assertTrue((self.dir / "dest" / "nsp" / "Game [0100000000010000][v0].xci").exists())
+
+    def test_compressed_only_gives_hint(self):
+        (self.nsp / "Game.nsz").write_bytes(b"x")
+        (self.nsp / "Game2.xcz").write_bytes(b"x")
         rc, _, err = self.pack()
         self.assertEqual(rc, 1)
-        self.assertIn("convert", err)
+        self.assertIn("decompress", err)
+
+    def test_warns_on_other_update_version(self):
+        (self.nsp / BASE).write_bytes(b"base")
+        (self.nsp / "Game [0100000000010800][v262144].nsp").write_bytes(b"old")
+        rc, out, _ = self.pack()
+        self.assertEqual(rc, 0)
+        self.assertIn("v262144", out)
+        self.assertIn("1.4.1", out)
+
+    def test_no_version_warning_for_expected_update(self):
+        (self.nsp / BASE).write_bytes(b"base")
+        (self.nsp / UPD).write_bytes(b"upd")
+        rc, out, _ = self.pack()
+        self.assertEqual(rc, 0)
+        self.assertNotIn("warning: Game", out)
+        self.assertNotIn("no update NSP", out)
 
     def test_wrong_game_rejected(self):
         (self.nsp / "Other [0100ABCDEF000000][v0].nsp").write_bytes(b"o")
@@ -210,6 +239,52 @@ class CloudBuildArgs(unittest.TestCase):
         r = self.sh()
         self.assertEqual(r.returncode, 2)
         self.assertIn("needs a Mac", r.stderr)
+
+
+class PublishReleaseParts(unittest.TestCase):
+    def run_script(self, out_dir, bindir, log, **env):
+        e = {**os.environ, "PATH": f"{bindir}:{os.environ['PATH']}", "GITHUB_REPOSITORY": "me/repo",
+             "GITHUB_RUN_ID": "123", "PART_BYTES": "1000", "GH_LOG": str(log), **env}
+        return subprocess.run(["bash", str(ROOT / "scripts" / "publish_release_parts.sh"), str(out_dir)],
+                              env=e, capture_output=True, text=True)
+
+    def make_fake_gh(self, bindir):
+        gh = Path(bindir) / "gh"
+        # records its arguments and copies the part files it was given, as the real upload would read them
+        gh.write_text('#!/bin/sh\nprintf "%s\\n" "$@" >> "$GH_LOG"\nfor a in "$@"; do case "$a" in *.part-*) cp "$a" "$GH_LOG.$(basename "$a")";; esac; done\n')
+        gh.chmod(0o755)
+
+    def test_splits_publishes_and_cleans_up(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out, bindir, log = tmp / "out", tmp / "bin", tmp / "gh.log"
+            out.mkdir()
+            bindir.mkdir()
+            self.make_fake_gh(bindir)
+            data = bytes(range(256)) * 10  # 2560 bytes -> 3 parts of at most 1000
+            (out / "Game.ipa").write_bytes(data)
+            r = self.run_script(out, bindir, log)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            args = log.read_text().split("\n")
+            self.assertEqual(args[:3], ["release", "create", "ipa-123"])
+            self.assertIn("--draft", args)
+            self.assertIn("me/repo", args)
+            parts = sorted(a for a in args if ".part-" in a)
+            self.assertEqual(parts, ["Game.ipa.part-aa", "Game.ipa.part-ab", "Game.ipa.part-ac"])
+            joined = b"".join((tmp / f"gh.log.{p}").read_bytes() for p in parts)
+            self.assertEqual(joined, data)  # parts rejoin to the original, in order
+            self.assertEqual(sorted(p.name for p in out.iterdir()), ["Game.ipa"])  # parts removed afterwards
+
+    def test_no_ipa_is_a_no_op(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            out, bindir, log = tmp / "out", tmp / "bin", tmp / "gh.log"
+            out.mkdir()
+            bindir.mkdir()
+            self.make_fake_gh(bindir)
+            r = self.run_script(out, bindir, log)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(log.exists())
 
 
 class HasProfile(unittest.TestCase):
