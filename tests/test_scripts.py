@@ -200,10 +200,46 @@ class CloudBuildArgs(unittest.TestCase):
         self.assertIn("TITLE_ID", r.stderr)
 
     @unittest.skipIf(sys.platform == "darwin", "checks the non-Mac refusal")
+    def test_auto_mode_is_accepted(self):
+        r = self.sh(MODE="auto")
+        self.assertEqual(r.returncode, 2)
+        self.assertIn("needs a Mac", r.stderr)
+
+    @unittest.skipIf(sys.platform == "darwin", "checks the non-Mac refusal")
     def test_refuses_off_mac(self):
         r = self.sh()
         self.assertEqual(r.returncode, 2)
         self.assertIn("needs a Mac", r.stderr)
+
+
+class HasProfile(unittest.TestCase):
+    def check(self, dirs, title_id):
+        with tempfile.TemporaryDirectory() as tmp:
+            for d in dirs:
+                os.makedirs(os.path.join(tmp, "dm", "games", d))
+            # a file next to the profiles must never count as one
+            if dirs:
+                Path(tmp, "dm", "games", "README.md").write_text("x")
+            r = subprocess.run(["bash", str(ROOT / "scripts" / "has_profile.sh"), tmp, title_id],
+                               capture_output=True, text=True)
+            self.assertEqual(r.returncode, 0, r.stderr)
+            return r.stdout.strip()
+
+    def test_found_exact_and_case_insensitive(self):
+        self.assertEqual(self.check(["010015100B514000"], "010015100B514000"), "found")
+        self.assertEqual(self.check(["010015100B514000"], "010015100b514000"), "found")
+
+    def test_missing(self):
+        self.assertEqual(self.check(["010015100B514000"], "0100000000010000"), "missing")
+        self.assertEqual(self.check([], "0100000000010000"), "missing")
+
+    def test_file_named_like_profile_is_not_a_profile(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            os.makedirs(os.path.join(tmp, "dm", "games"))
+            Path(tmp, "dm", "games", "0100000000010000").write_text("not a dir")
+            r = subprocess.run(["bash", str(ROOT / "scripts" / "has_profile.sh"), tmp, "0100000000010000"],
+                               capture_output=True, text=True)
+            self.assertEqual(r.stdout.strip(), "missing")
 
 
 if __name__ == "__main__":

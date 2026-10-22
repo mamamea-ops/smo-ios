@@ -4,23 +4,25 @@ Cloud build harness and DualSense layer for running **your own** Super Mario Ody
 
 ## Read this first
 
-- **nxnative does not support Odyssey yet.** Its supported list has no Odyssey profile, and its docs describe adding one as a bring-up on a Mac (host fixes, shader tables, device testing). This repo does not contain that work, so it cannot produce a playable build today.
-- What it does now: runs nxnative's **survey** on your files in the cloud (the documented first step of adding a game), and, once nxnative has an Odyssey profile, builds the IPA.
-- **Not yet verified:** nothing here has run on a real Mac runner or an iPhone. The Python and C parts have unit tests; the Objective-C DualSense code is only checked by CI on first run.
+- **nxnative does not support Odyssey yet** (checked 22 October 2026: its supported-games list has no Odyssey, and there is no `dm/games/0100000000010000/` profile). This repo does not contain a profile, because one has to be brought up and tested on a Mac and an iPhone. It cannot produce a playable Odyssey build today.
+- What it does now: builds an IPA for any game nxnative supports, and runs nxnative's **survey** for games it does not (the first step of adding a game). In `auto` mode it checks the nxnative commit for a profile and builds as soon as one exists, with no changes to this repo.
+- **Not yet verified:** nothing here has run on a real Mac runner or an iPhone. The Python, shell and C parts have unit tests; the Objective-C DualSense code is only checked by CI on first run.
 
 ## Use it
 
+Full walkthrough: **[docs/TUTORIAL.md](docs/TUTORIAL.md)** (prepare the files, build on your own Mac or in the cloud, install, troubleshoot). Short version of the cloud route:
+
 1. Create a **private** repo from this code. The workflow refuses to run in a public repo, because the IPA embeds your game files.
-2. On your computer, pack your files (plain `.nsp` only; convert XCI first):
+2. On a computer, pack your files (plain `.nsp` only; convert XCI first):
    ```
    python3 scripts/pack_inputs.py --nsp-dir ~/Games/SMO --keys ~/keys/prod.keys -o smo-inputs.zip
    ```
-3. Put the zip somewhere only you can reach and get a download URL. Add repo secrets:
+3. Put the zip somewhere only you can reach and get a direct download URL. Add repo secrets:
    - `INPUT_ZIP_URL` (required)
    - `INPUT_ZIP_SHA256` (printed by the pack script; recommended)
    - `OUTPUT_PUT_URL` (optional; also uploads the IPA there with an HTTP PUT)
-4. **Actions → Build IPA → Run workflow.** Start with `mode: survey`. Use `build` once nxnative supports the game.
-5. Download the `diagnostics` artifact (and `ipa` in build mode).
+4. **Actions, Build IPA, Run workflow.** Leave `mode` on `auto`. Set `title_id` if the game is not Odyssey.
+5. Download the `diagnostics` artifact (and `ipa` when one was built).
 
 ## Limits to check before running
 

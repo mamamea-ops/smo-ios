@@ -4,12 +4,17 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "survey = analyse the game only (nxnative has no Odyssey profile yet); build = pack the IPA"
+        description: "auto = build if nxnative has a profile for the game, otherwise survey; survey = analyse only; build = pack the IPA"
         type: choice
         options:
+          - auto
           - survey
           - build
-        default: survey
+        default: auto
+      title_id:
+        description: "Base game title ID (default: Super Mario Odyssey; Super Mario Bros. Wonder is 010015100B514000)"
+        type: string
+        default: "0100000000010000"
       nxnative_ref:
         description: "nxnative branch, tag or commit SHA (pin a SHA for reproducible builds)"
         type: string
@@ -56,6 +61,7 @@ jobs:
           OUTPUT_PUT_URL: ${{ secrets.OUTPUT_PUT_URL }}
           NXNATIVE_REF: ${{ inputs.nxnative_ref }}
           MODE: ${{ inputs.mode }}
+          TITLE_ID: ${{ inputs.title_id }}
           APP_NAME: ${{ inputs.app_name }}
           WORK_DIR: ${{ runner.temp }}/smo-work
           OUT_DIR: ${{ runner.temp }}/smo-out
@@ -66,6 +72,8 @@ jobs:
         run: |
           f="${{ runner.temp }}/smo-out/diagnostics/nxnative-commit.txt"
           if [ -f "$f" ]; then echo "nxnative commit: \`$(cat "$f")\`" >> "$GITHUB_STEP_SUMMARY"; fi
+          p="${{ runner.temp }}/smo-out/diagnostics/profile-status.txt"
+          if [ -f "$p" ]; then echo "$(cat "$p")" >> "$GITHUB_STEP_SUMMARY"; fi
 
       - name: Upload diagnostics
         if: always()
@@ -77,7 +85,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload IPA
-        if: always() && inputs.mode == 'build'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ipa

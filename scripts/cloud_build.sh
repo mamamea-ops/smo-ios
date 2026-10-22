@@ -7,7 +7,8 @@
 #   INPUT_ZIP_SHA256   optional; the download is rejected if it does not match
 #   OUTPUT_PUT_URL     optional; the IPA is also uploaded there with an HTTP PUT
 #   NXNATIVE_REF       nxnative branch, tag or commit (default: main)
-#   MODE               survey | build  (default: survey)
+#   MODE               auto | survey | build  (default: auto = build if nxnative has a profile
+#                      for TITLE_ID, otherwise survey)
 #   TITLE_ID           base title ID to require (default: 0100000000010000)
 #   APP_NAME           optional home-screen name
 #   WORK_DIR           scratch dir (default: ./work)
@@ -22,13 +23,13 @@ set +x
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 NXNATIVE_URL="${NXNATIVE_URL:-https://github.com/seedds/nxnative.git}"
 NXNATIVE_REF="${NXNATIVE_REF:-main}"
-MODE="${MODE:-survey}"
+MODE="${MODE:-auto}"
 TITLE_ID="${TITLE_ID:-0100000000010000}"
 WORK_DIR="${WORK_DIR:-$PWD/work}"
 OUT_DIR="${OUT_DIR:-$PWD/out}"
 KEEP_WORK="${KEEP_WORK:-0}"
 
-case "$MODE" in survey|build) ;; *) echo "error: MODE must be survey or build" >&2; exit 2 ;; esac
+case "$MODE" in auto|survey|build) ;; *) echo "error: MODE must be auto, survey or build" >&2; exit 2 ;; esac
 if [[ ! "$NXNATIVE_REF" =~ ^[A-Za-z0-9._][A-Za-z0-9._/-]*$ ]]; then
   echo "error: NXNATIVE_REF has unexpected characters" >&2; exit 2
 fi
@@ -109,6 +110,18 @@ NX_SHA="$(git -C "$NX_DIR" rev-parse HEAD)"
 echo "nxnative commit: $NX_SHA"
 echo "$NX_SHA" > "$OUT_DIR/diagnostics/nxnative-commit.txt"
 
+PROFILE_STATUS="$(bash "$REPO_ROOT/scripts/has_profile.sh" "$NX_DIR" "$TITLE_ID")"
+echo "profile for $TITLE_ID in this nxnative commit: $PROFILE_STATUS"
+echo "profile $TITLE_ID: $PROFILE_STATUS" > "$OUT_DIR/diagnostics/profile-status.txt"
+if [[ "$MODE" == "auto" ]]; then
+  if [[ "$PROFILE_STATUS" == "found" ]]; then MODE="build"; else MODE="survey"; fi
+  echo "mode auto -> $MODE"
+fi
+if [[ "$MODE" == "build" && "$PROFILE_STATUS" == "missing" ]]; then
+  echo "warning: no profile for $TITLE_ID in this nxnative commit. nxnative will write a survey and" \
+       "may pack a best-effort IPA from guessed values; do not expect it to run." >&2
+fi
+
 bash "$REPO_ROOT/scripts/inspect_nxnative_input.sh" "$NX_DIR" \
   > "$OUT_DIR/diagnostics/dualsense-integration-report.md" || true
 
@@ -149,7 +162,11 @@ if [[ $rc -ne 0 ]]; then
 fi
 
 if [[ "$MODE" == "build" && $ipa_count -eq 0 ]]; then
-  echo "error: nxnative reported success but produced no IPA" >&2
+  if [[ "$PROFILE_STATUS" == "missing" ]]; then
+    echo "No IPA: this nxnative commit has no profile for $TITLE_ID. See diagnostics for the survey." >&2
+  else
+    echo "error: nxnative reported success but produced no IPA" >&2
+  fi
   exit 1
 fi
 
